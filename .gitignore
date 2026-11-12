@@ -151,3 +151,11 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+venv/
+req_nogym.txt
+.venv-abides/
+.venv-kyle/
+log/
+__pycache__/
+.pytest_cache/
+.DS_Store
