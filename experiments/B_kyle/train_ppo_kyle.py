@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import csv
 
 from kyle_env import KyleGame
 from kyle_solver import solve_kyle
@@ -79,6 +80,7 @@ def train_ppo():
     print("=" * 60)
     print("Training PPO Insider Policy on KyleGame...")
     print("=" * 60)
+    log_rows = []
 
     for epoch in range(epochs):
         env.reset()
@@ -154,6 +156,19 @@ def train_ppo():
             loss.backward()
             optimizer.step()
 
+        with torch.no_grad():
+            td = []
+            for t in range(N):
+                v_next = values_list[t + 1] if t + 1 < N else torch.zeros(batch_size)
+                td.append(rewards_list[t] + gamma * v_next - values_list[t])
+            td_var = torch.stack(td).var().item()
+        log_rows.append((
+            epoch + 1,
+            torch.stack(rewards_list).sum(dim=0).mean().item(),
+            value_loss.item(),
+            td_var,
+            returns_b.var().item(),
+        ))
         if (epoch + 1) % 50 == 0 or epoch == epochs - 1:
             mean_profit = (
                 torch.stack(rewards_list).sum(dim=0).mean().item()
@@ -162,6 +177,12 @@ def train_ppo():
                 f"Epoch {epoch + 1:3d}/{epochs} | Loss: {loss.item():.4f} | Mean Insider Profit: {mean_profit:.1f}"
             )
 
+    log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ppo_training_log.csv")
+    with open(log_path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["epoch", "mean_profit", "value_loss", "td_var", "return_var"])
+        w.writerows(log_rows)
+    print(f"Saved training log to {log_path}")
     # Evaluate Learned Policy vs Analytical Beta
     print("\nEvaluating Learned Policy vs Analytical Beta_n...")
     model.eval()
