@@ -11,7 +11,7 @@ SEEDS = [1, 2, 3, 4, 5]
 GRID_NS = 10 * 10**9  # 10 s grid
 TOP_K = 5  # levels used for depth
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sweep_results.csv")
-FIELDS = ["num_mm", "seed", "runtime_s", "messages", "spread", "depth", "vol_bps", "n_grid", "n_valid"]
+FIELDS = ["run_id", "num_mm", "seed", "runtime_s", "messages", "spread", "depth", "vol_bps", "n_grid", "n_valid"]
 
 
 def book_metrics(L2, grid_ns=GRID_NS, top_k=TOP_K):
@@ -41,6 +41,23 @@ def book_metrics(L2, grid_ns=GRID_NS, top_k=TOP_K):
     )
 
 
+SNAP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "snapshots")
+
+
+def grid_snapshots(L2, grid_ns=GRID_NS):
+    """Order-book snapshots on a fixed grid (last known value). bids/asks: (T, 10, 2) = [price in cents, size]."""
+    t = np.asarray(L2["times"], dtype=np.int64)
+    bids, asks = np.asarray(L2["bids"]), np.asarray(L2["asks"])
+    valid = (bids[:, 0, 1] > 0) & (asks[:, 0, 1] > 0)
+    t, bids, asks = t[valid], bids[valid], asks[valid]
+    if len(t) < 3:
+        return t, bids, asks
+    grid = np.arange(t[0], t[-1], grid_ns)
+    idx = np.searchsorted(t, grid, side="right") - 1
+    ok = idx >= 0
+    return grid[ok], bids[idx[ok]], asks[idx[ok]]
+
+
 def run_one(num_mm, seed):
     from abides_core import Kernel
     from abides_core.utils import subdict
@@ -57,8 +74,13 @@ def run_one(num_mm, seed):
     end_state = kernel.run()
     runtime = time.time() - t0
     ob = end_state["agents"][0].order_books["ABM"]
-    m = book_metrics(ob.get_L2_snapshots(nlevels=10))
-    return dict(num_mm=num_mm, seed=seed, runtime_s=round(runtime, 2),
+    L2 = ob.get_L2_snapshots(nlevels=10)
+    m = book_metrics(L2)
+    run_id = "mm%d_s%d" % (num_mm, seed)
+    os.makedirs(SNAP_DIR, exist_ok=True)
+    g_t, g_b, g_a = grid_snapshots(L2)
+    np.savez_compressed(os.path.join(SNAP_DIR, run_id + ".npz"), times_ns=g_t, bids=g_b, asks=g_a)
+    return dict(run_id=run_id, num_mm=num_mm, seed=seed, runtime_s=round(runtime, 2),
                 messages=kernel.ttl_messages, **m)
 
 
